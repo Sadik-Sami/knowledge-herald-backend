@@ -790,6 +790,53 @@ app.delete('/articles/:id', verifyUser, async (req, res) => {
 	}
 });
 
+// NOTE: ALL API RELATED TO PUBLISHER
+//? Add Publisher
+app.post('/publishers', verifyUser, verifyAdmin, async (req, res) => {
+	const { name, logo } = req.body;
+	try {
+		if (!name || !logo) {
+			return res.status(400).json({
+				success: false,
+				message: 'Name and logo are required',
+			});
+		}
+
+		const result = await publishersCollection.insertOne({
+			name,
+			logo,
+			createdAt: new Date(),
+		});
+
+		res.status(201).json({
+			success: true,
+			message: 'Publisher added successfully',
+			data: result,
+		});
+	} catch (error) {
+		res.status(500).json({
+			success: false,
+			message: 'Error adding publisher',
+		});
+	}
+});
+
+//? Get Publishers
+app.get('/publishers', async (req, res) => {
+	try {
+		const publishers = await publishersCollection.find().toArray();
+		res.status(201).json({
+			success: true,
+			message: 'Publisher added successfully',
+			data: publishers,
+		});
+	} catch (error) {
+		res.status(500).json({
+			success: false,
+			message: 'Error adding publisher',
+		});
+	}
+});
 
 // NOTE: MONGODB
 async function run() {

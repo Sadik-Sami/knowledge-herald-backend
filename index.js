@@ -4,17 +4,9 @@ const app = express();
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
 const stripe = require('stripe')(process.env.STRIPE_SK);
-const port = process.env.PORT || 5000;
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASSWORD}@cluster0.3b45u.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
-
-//NOTE: MIDDLEWARES
-app.use(
-	cors({
-		origin: ['http://localhost:5173', 'http://localhost:5174'],
-	})
-);
-app.use(express.json());
+const port = process.env.PORT || 5000;
 
 // NOTE: Database Client
 const client = new MongoClient(uri, {
@@ -32,6 +24,14 @@ const publishersCollection = client.db('heraldDB').collection('publishers');
 const articlesCollection = client.db('heraldDB').collection('articles');
 const plansCollection = client.db('heraldDB').collection('plans');
 const commentsCollection = client.db('heraldDB').collection('comments');
+
+//NOTE: MIDDLEWARES
+app.use(
+	cors({
+		origin: ['http://localhost:5173', 'http://localhost:5174'],
+	})
+);
+app.use(express.json());
 
 //NOTE: CUSTOM MIDDLEWARES
 //? Verify user
@@ -791,6 +791,7 @@ app.delete('/articles/:id', verifyUser, async (req, res) => {
 });
 
 // NOTE: ALL API RELATED TO PUBLISHER
+
 //? Add Publisher
 app.post('/publishers', verifyUser, verifyAdmin, async (req, res) => {
 	const { name, logo } = req.body;
@@ -959,6 +960,7 @@ app.get('/plans', async (req, res) => {
 });
 
 // NOTE: All API RELATED TO INTERACTING WITH ARTICLES
+
 //? Increase View on visit
 app.post('/articles/:id/view', async (req, res) => {
 	try {
@@ -1024,12 +1026,96 @@ app.post('/articles/:id/comments', verifyUser, async (req, res) => {
 	}
 });
 
+// NOTE: ALL API RELATED TO GETTING STATS
+//? Get Site Stats
+app.get('/stats', async (req, res) => {
+	try {
+		const [totalUsers, freeArticles, premiumArticles, publishers, subscribedUsers] = await Promise.all([
+			usersCollection.countDocuments(),
+			articlesCollection.countDocuments({ isPremium: false, status: 'approved' }),
+			articlesCollection.countDocuments({ isPremium: true, status: 'approved' }),
+			publishersCollection.countDocuments(),
+			usersCollection.countDocuments({ hasSubscription: true }),
+		]);
+
+		res.json({
+			success: true,
+			data: {
+				totalUsers,
+				freeArticles,
+				premiumArticles,
+				publishers,
+				subscribedUsers,
+			},
+		});
+	} catch (error) {
+		res.status(500).json({
+			success: false,
+			message: 'Error fetching stats',
+		});
+	}
+});
+
+//? Get Admin Stats
+app.get('/admin/stats', verifyUser, verifyAdmin, async (req, res) => {
+	try {
+		// Get basic stats
+		const [totalUsers, totalArticles, premiumArticles, totalPublishers, totalViews, totalComments, totalRatings] =
+			await Promise.all([
+				usersCollection.countDocuments(),
+				articlesCollection.countDocuments({ status: 'approved' }),
+				articlesCollection.countDocuments({ status: 'approved', isPremium: true }),
+				publishersCollection.countDocuments(),
+				articlesCollection.aggregate([{ $group: { _id: null, total: { $sum: '$views' } } }]).toArray(),
+				commentsCollection.countDocuments(),
+				commentsCollection.countDocuments({ rating: { $exists: true } }),
+			]);
+
+		const publicationDistribution = await articlesCollection
+			.aggregate([
+				{
+					$group: {
+						_id: '$publisherName',
+						count: { $sum: 1 },
+					},
+				},
+				{
+					$project: {
+						_id: 0,
+						name: '$_id',
+						count: 1,
+					},
+				},
+			])
+			.toArray();
+
+		res.json({
+			success: true,
+			data: {
+				totalUsers,
+				totalArticles,
+				premiumArticles,
+				totalPublishers,
+				totalViews: totalViews[0]?.total || 0,
+				totalComments,
+				totalRatings,
+				publicationDistribution,
+			},
+		});
+	} catch (error) {
+		res.status(500).json({
+			success: false,
+			message: 'Error fetching admin statistics',
+		});
+	}
+});
+
 // NOTE: MONGODB
 async function run() {
 	try {
-		await client.connect();
-		await client.db('admin').command({ ping: 1 });
-		console.log('Pinged your deployment. You successfully connected to MongoDB!');
+		// await client.connect();
+		// await client.db('admin').command({ ping: 1 });
+		// console.log('Pinged your deployment. You successfully connected to MongoDB!');
 	} finally {
 	}
 }

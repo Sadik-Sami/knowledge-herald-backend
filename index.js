@@ -95,6 +95,146 @@ const verifySubscription = async (req, res, next) => {
 	}
 };
 
+// NOTE: AUTH AND JWT
+//? JWT auth and token
+app.post('/auth/login', async (req, res) => {
+	const user = req.body;
+	try {
+		const token = jwt.sign(user, process.env.JWT_SECRET, { expiresIn: '1h' });
+		res.send({ success: true, uToken: token });
+	} catch (error) {
+		console.log(error);
+	}
+});
+
+//? Check subscription status
+app.get('/users/subscription/:email', verifyUser, async (req, res) => {
+	const email = req.params.email;
+	if (email !== req.decoded.email) {
+		return res.status(403).json({ success: false, message: 'Unauthorized access' });
+	}
+
+	try {
+		const user = await usersCollection.findOne({ email });
+		if (!user) {
+			return res.json({ success: true, hasSubscription: false });
+		}
+
+		const hasActiveSubscription =
+			user.hasSubscription && user.subscriptionEnd && new Date(user.subscriptionEnd) > new Date();
+
+		if (!hasActiveSubscription && user.hasSubscription) {
+			// Update user if subscription has expired
+			await usersCollection.updateOne({ email }, { $set: { hasSubscription: false, subscriptionEnd: null } });
+		}
+
+		res.json({
+			success: true,
+			hasSubscription: hasActiveSubscription,
+			subscriptionEnd: hasActiveSubscription ? user.subscriptionEnd : null,
+		});
+	} catch (error) {
+		res.status(500).json({ success: false, message: 'Server Error' });
+	}
+});
+
+//? Add firebase user to database
+app.post('/users', async (req, res) => {
+	const user = req.body;
+	try {
+		await usersCollection.createIndex({ email: 1 }, { unique: true });
+		const result = await usersCollection.insertOne({
+			...user,
+			created_at: new Date(),
+			hasSubscription: false,
+			subscriptionEnd: null,
+			role: 'user',
+		});
+
+		if (!result.insertedId) {
+			return res.json({ success: false, message: 'Failed to add user' });
+		}
+		res.json({ success: true, message: 'User Added Successfully' });
+	} catch (error) {
+		if (error.code === 11000) {
+			res.json({ success: false, message: 'Email already exists' });
+		} else {
+			res.status(500).json({ success: false, message: 'Server Error' });
+		}
+	}
+});
+
+//? Update user profile with transaction to update related articles
+app.patch('/users/profile', verifyUser, async (req, res) => {
+	// Start a session for the transaction
+	const session = client.startSession();
+	try {
+		// Start transaction
+		await session.withTransaction(async () => {
+			const { name, photo } = req.body;
+			const email = req.decoded.email;
+			// Update user profile
+			const userUpdateResult = await usersCollection.updateOne(
+				{ email },
+				{
+					$set: {
+						name,
+						photo,
+						updated_at: new Date(),
+					},
+				},
+				{ session }
+			);
+
+			if (userUpdateResult.modifiedCount === 0) {
+				throw new Error('Failed to update user profile');
+			}
+
+			// Update all articles by this author
+			const articlesUpdateResult = await articlesCollection.updateMany(
+				{ authorEmail: email },
+				{
+					$set: {
+						authorName: name,
+						authorImage: photo,
+					},
+				},
+				{ session }
+			);
+
+			// Update all comments by this user
+			await commentsCollection.updateMany(
+				{ userEmail: email },
+				{
+					$set: {
+						userName: name,
+						userImage: photo,
+					},
+				},
+				{ session }
+			);
+			// Return the update counts
+			return {
+				userUpdated: userUpdateResult.modifiedCount,
+				articlesUpdated: articlesUpdateResult.modifiedCount,
+			};
+		});
+		res.json({
+			success: true,
+			message: 'Profile updated successfully',
+		});
+	} catch (error) {
+		console.error('Profile Update Error:', error);
+		res.status(500).json({
+			success: false,
+			message: error.message || 'Error updating profile',
+		});
+	} finally {
+		// End the session
+		await session.endSession();
+	}
+});
+
 // NOTE: MONGODB
 async function run() {
 	try {

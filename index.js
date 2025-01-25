@@ -17,6 +17,14 @@ const client = new MongoClient(uri, {
 	},
 });
 
+// NOTE: Database Collections
+const usersCollection = client.db('heraldDB').collection('users');
+const paymentsCollection = client.db('heraldDB').collection('payments');
+const publishersCollection = client.db('heraldDB').collection('publishers');
+const articlesCollection = client.db('heraldDB').collection('articles');
+const plansCollection = client.db('heraldDB').collection('plans');
+const commentsCollection = client.db('heraldDB').collection('comments');
+
 // NOTE: MONGODB
 async function run() {
 	try {

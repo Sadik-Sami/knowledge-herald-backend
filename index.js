@@ -33,6 +33,68 @@ const articlesCollection = client.db('heraldDB').collection('articles');
 const plansCollection = client.db('heraldDB').collection('plans');
 const commentsCollection = client.db('heraldDB').collection('comments');
 
+//NOTE: CUSTOM MIDDLEWARES
+//? Verify user
+const verifyUser = (req, res, next) => {
+	const authHeader = req.headers.authorization;
+	if (!authHeader) {
+		return res.status(401).send({ success: false, message: 'Unauthorized Access' });
+	}
+	const token = authHeader.split(' ')[1];
+	jwt.verify(token, process.env.JWT_SECRET, (error, decoded) => {
+		if (error) {
+			return res.status(401).send({ success: false, message: 'Unauthorized Access' });
+		}
+		req.decoded = decoded;
+		next();
+	});
+};
+
+//?  Verify Admin
+const verifyAdmin = async (req, res, next) => {
+	const email = req.decoded.email;
+	const query = { email: email };
+	const user = await usersCollection.findOne(query);
+
+	const isAdmin = user?.role === 'admin';
+	if (!isAdmin) {
+		return res.status(403).send({ success: false, message: 'Forbidden Access' });
+	}
+	next();
+};
+
+//? Verify Subscription
+const verifySubscription = async (req, res, next) => {
+	try {
+		const email = req.decoded.email;
+		const user = await usersCollection.findOne({ email });
+
+		if (!user?.hasSubscription) {
+			return res.status(403).json({
+				success: false,
+				message: 'This content requires an active subscription',
+			});
+		}
+
+		// Check if subscription has expired
+		if (user.subscriptionEnd && new Date(user.subscriptionEnd) < new Date()) {
+			await usersCollection.updateOne({ email }, { $set: { hasSubscription: false }, $unset: { subscriptionEnd: '' } });
+
+			return res.status(403).json({
+				success: false,
+				message: 'Your subscription has expired',
+			});
+		}
+
+		next();
+	} catch (error) {
+		res.status(500).json({
+			success: false,
+			message: 'Error verifying subscription',
+		});
+	}
+};
+
 // NOTE: MONGODB
 async function run() {
 	try {

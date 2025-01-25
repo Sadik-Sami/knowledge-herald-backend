@@ -244,6 +244,7 @@ async function run() {
 	} finally {
 	}
 }
+run().catch(console.dir);
 
 // NOTE: Root endpoint
 app.get('/', (req, res) => {

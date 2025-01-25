@@ -838,6 +838,126 @@ app.get('/publishers', async (req, res) => {
 	}
 });
 
+// NOTE: ALL API RELATED TO PAYMENT
+//? Create payment session
+app.post('/create-payment-intent', verifyUser, async (req, res) => {
+	try {
+		const { planId, email } = req.body;
+		// Get plan from database
+		const plan = await plansCollection.findOne({ _id: new ObjectId(planId) });
+		if (!plan) {
+			return res.status(400).json({
+				success: false,
+				message: 'Invalid plan selected',
+			});
+		}
+
+		// Convert duration to minutes based on unit
+		const durationInMinutes =
+			plan.duration *
+			(plan.durationUnit === 'minute'
+				? 1
+				: plan.durationUnit === 'days'
+				? 24 * 60
+				: plan.durationUnit === 'months'
+				? 30 * 24 * 60
+				: 0);
+
+		const session = await stripe.checkout.sessions.create({
+			payment_method_types: ['card'],
+			line_items: [
+				{
+					price_data: {
+						currency: 'usd',
+						product_data: {
+							name: `${plan.name} - ${plan.duration} ${plan.durationUnit}`,
+							description: plan.description,
+						},
+						unit_amount: Math.round(plan.price * 100), // Convert to cents
+					},
+					quantity: 1,
+				},
+			],
+			mode: 'payment',
+			success_url: `${process.env.CLIENT_URL}/payment/success?session_id={CHECKOUT_SESSION_ID}`,
+			cancel_url: `${process.env.CLIENT_URL}/subscription`,
+			customer_email: email,
+			metadata: {
+				planId: plan.id,
+				duration: durationInMinutes.toString(),
+				planName: plan.name,
+			},
+		});
+
+		res.json({
+			success: true,
+			sessionId: session.id,
+		});
+	} catch (error) {
+		console.error('Payment Intent Error:', error);
+		res.status(500).json({
+			success: false,
+			message: 'Error creating payment session',
+		});
+	}
+});
+
+//? successful payment
+app.get('/payment/success', async (req, res) => {
+	try {
+		const session = await stripe.checkout.sessions.retrieve(req.query.session_id);
+
+		if (session.payment_status === 'paid') {
+			const payment = {
+				email: session.customer_email,
+				paymentId: session.payment_intent,
+				planId: session.metadata.planId,
+				planName: session.metadata.planName,
+				subscriptionTime: Number.parseInt(session.metadata.duration),
+				amount: session.amount_total,
+				createdAt: new Date(),
+				status: 'success',
+			};
+
+			await paymentsCollection.insertOne(payment);
+
+			// Update user subscription status
+			await usersCollection.updateOne(
+				{ email: session.customer_email },
+				{
+					$set: {
+						hasSubscription: true,
+						subscriptionEnd: new Date(Date.now() + Number.parseInt(session.metadata.duration) * 60 * 1000),
+					},
+				}
+			);
+
+			res.json({
+				success: true,
+				message: 'Payment processed successfully',
+			});
+		} else {
+			throw new Error('Payment not successful');
+		}
+	} catch (error) {
+		console.error('Payment Success Error:', error);
+		res.status(500).json({
+			success: false,
+			message: 'Error processing payment',
+		});
+	}
+});
+
+//? Get plans
+app.get('/plans', async (req, res) => {
+	try {
+		const plans = await plansCollection.find().toArray();
+		res.json({ success: true, data: plans });
+	} catch (error) {
+		res.status(500).json({ success: false, message: 'Error fetching plans' });
+	}
+});
+
 // NOTE: MONGODB
 async function run() {
 	try {

@@ -5,7 +5,27 @@ const cors = require('cors');
 const jwt = require('jsonwebtoken');
 const stripe = require('stripe')(process.env.STRIPE_SK);
 const port = process.env.PORT || 5000;
+const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
+const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASSWORD}@cluster0.3b45u.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
 
+// NOTE: Database Client
+const client = new MongoClient(uri, {
+	serverApi: {
+		version: ServerApiVersion.v1,
+		strict: true,
+		deprecationErrors: true,
+	},
+});
+
+// NOTE: MONGODB
+async function run() {
+	try {
+		await client.connect();
+		await client.db('admin').command({ ping: 1 });
+		console.log('Pinged your deployment. You successfully connected to MongoDB!');
+	} finally {
+	}
+}
 
 // NOTE: Root endpoint
 app.get('/', (req, res) => {

@@ -235,6 +235,45 @@ app.patch('/users/profile', verifyUser, async (req, res) => {
 	}
 });
 
+// NOTE: ADMIN RELATED API
+//? is Admin
+app.get('/users/admin/:email', verifyUser, async (req, res) => {
+	const email = req.params.email;
+	if (email !== req.decoded.email) {
+		return res.status(403).send({ success: false, message: 'Unauthorized access' });
+	}
+	const user = await usersCollection.findOne({ email: email });
+	let isAdmin = false;
+	if (user) {
+		isAdmin = user?.role === 'admin';
+	}
+	res.send({ success: true, isAdmin });
+});
+
+//? Make admin
+app.patch('/make-admin/:id', verifyUser, verifyAdmin, async (req, res) => {
+	try {
+		const result = await usersCollection.updateOne({ _id: new ObjectId(req.params.id) }, { $set: { role: 'admin' } });
+
+		if (result.modifiedCount === 0) {
+			return res.status(404).json({
+				success: false,
+				message: 'User not found',
+			});
+		}
+
+		res.json({
+			success: true,
+			message: 'User has been made admin successfully',
+		});
+	} catch (error) {
+		res.status(500).json({
+			success: false,
+			message: 'Error updating user role',
+		});
+	}
+});
+
 // NOTE: MONGODB
 async function run() {
 	try {

@@ -8,6 +8,14 @@ const port = process.env.PORT || 5000;
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASSWORD}@cluster0.3b45u.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
 
+//NOTE: MIDDLEWARES
+app.use(
+	cors({
+		origin: ['http://localhost:5173', 'http://localhost:5174'],
+	})
+);
+app.use(express.json());
+
 // NOTE: Database Client
 const client = new MongoClient(uri, {
 	serverApi: {

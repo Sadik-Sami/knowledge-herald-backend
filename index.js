@@ -958,6 +958,72 @@ app.get('/plans', async (req, res) => {
 	}
 });
 
+// NOTE: All API RELATED TO INTERACTING WITH ARTICLES
+//? Increase View on visit
+app.post('/articles/:id/view', async (req, res) => {
+	try {
+		await articlesCollection.updateOne({ _id: new ObjectId(req.params.id) }, { $inc: { views: 1 } });
+
+		res.json({
+			success: true,
+			message: 'View count updated',
+		});
+	} catch (error) {
+		res.status(500).json({
+			success: false,
+			message: 'Error updating view count',
+		});
+	}
+});
+
+//? Get Comments
+app.get('/articles/:id/comments', verifyUser, async (req, res) => {
+	try {
+		const comments = await commentsCollection.find({ articleId: req.params.id }).sort({ createdAt: -1 }).toArray();
+
+		res.json({
+			success: true,
+			data: comments,
+		});
+	} catch (error) {
+		res.status(500).json({
+			success: false,
+			message: 'Error fetching comments',
+		});
+	}
+});
+
+//? Add comment
+app.post('/articles/:id/comments', verifyUser, async (req, res) => {
+	try {
+		const comment = {
+			...req.body,
+			createdAt: new Date(),
+		};
+
+		const result = await commentsCollection.insertOne(comment);
+
+		// Update article rating
+		const comments = await commentsCollection.find({ articleId: req.params.id }).toArray();
+
+		const totalRating = comments.reduce((sum, comment) => sum + comment.rating, 0);
+		const averageRating = totalRating / comments.length;
+
+		await articlesCollection.updateOne({ _id: new ObjectId(req.params.id) }, { $set: { averageRating } });
+
+		res.json({
+			success: true,
+			message: 'Comment added successfully',
+			data: result,
+		});
+	} catch (error) {
+		res.status(500).json({
+			success: false,
+			message: 'Error adding comment',
+		});
+	}
+});
+
 // NOTE: MONGODB
 async function run() {
 	try {

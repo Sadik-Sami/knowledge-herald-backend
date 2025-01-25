@@ -274,6 +274,91 @@ app.patch('/make-admin/:id', verifyUser, verifyAdmin, async (req, res) => {
 	}
 });
 
+//? Get All Users
+app.get('/users', verifyUser, verifyAdmin, async (req, res) => {
+	try {
+		const page = parseInt(req.query.page) || 1;
+		const limit = parseInt(req.query.limit) || 10;
+		const skip = (page - 1) * limit;
+
+		const [users, total] = await Promise.all([
+			usersCollection.find().skip(skip).limit(limit).toArray(),
+			usersCollection.countDocuments(),
+		]);
+
+		res.json({
+			success: true,
+			data: users,
+			total,
+			page,
+			limit,
+		});
+	} catch (error) {
+		res.status(500).json({
+			success: false,
+			message: 'Error fetching users',
+		});
+	}
+});
+
+//? Make Article Premium
+app.patch('/articles/:id/premium', verifyUser, verifyAdmin, async (req, res) => {
+	try {
+		const result = await articlesCollection.updateOne(
+			{ _id: new ObjectId(req.params.id) },
+			{ $set: { isPremium: true, updatedAt: new Date() } }
+		);
+
+		if (result.modifiedCount === 0) {
+			return res.status(404).json({
+				success: false,
+				message: 'Article not found',
+			});
+		}
+
+		res.json({
+			success: true,
+			message: 'Article marked as premium successfully',
+		});
+	} catch (error) {
+		res.status(500).json({
+			success: false,
+			message: 'Error updating article premium status',
+		});
+	}
+});
+
+//? Change Article Status
+app.patch('/admin/articles/:id', verifyUser, verifyAdmin, async (req, res) => {
+	try {
+		const { status, declined_reason } = req.body;
+		const updateData = { status, updatedAt: new Date() };
+
+		if (declined_reason) {
+			updateData.declined_reason = declined_reason;
+		}
+
+		const result = await articlesCollection.updateOne({ _id: new ObjectId(req.params.id) }, { $set: updateData });
+
+		if (result.modifiedCount === 0) {
+			return res.status(404).json({
+				success: false,
+				message: 'Article not found',
+			});
+		}
+
+		res.json({
+			success: true,
+			message: `Article ${status} successfully`,
+		});
+	} catch (error) {
+		res.status(500).json({
+			success: false,
+			message: 'Error updating article status',
+		});
+	}
+});
+
 // NOTE: MONGODB
 async function run() {
 	try {

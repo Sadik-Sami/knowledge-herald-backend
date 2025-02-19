@@ -24,14 +24,15 @@ const publishersCollection = client.db('heraldDB').collection('publishers');
 const articlesCollection = client.db('heraldDB').collection('articles');
 const plansCollection = client.db('heraldDB').collection('plans');
 const commentsCollection = client.db('heraldDB').collection('comments');
+const contactCollection = client.db('heraldDB').collection('contacts');
 
 //NOTE: MIDDLEWARES
-// app.use(
-// 	cors({
-// 		origin: ['https://knowledge-herald.web.app', 'http://localhost:5173'],
-// 	})
-// );
-app.use(cors());
+app.use(
+	cors({
+		origin: ['https://knowledge-herald.web.app', 'http://localhost:5173'],
+	})
+);
+// app.use(cors());
 app.use(express.json());
 
 //NOTE: CUSTOM MIDDLEWARES
@@ -1285,6 +1286,106 @@ app.get('/user-stats', verifyUser, async (req, res) => {
 		res.status(500).json({
 			success: false,
 			message: 'Error fetching dashboard data',
+		});
+	}
+});
+
+// TODO:Contact
+app.post('/contact', async (req, res) => {
+	try {
+		const { name, email, subject, message } = req.body;
+
+		// Validate required fields
+		if (!name || !email || !subject || !message) {
+			return res.status(400).json({
+				success: false,
+				message: 'All fields are required',
+			});
+		}
+
+		// Validate email format
+		const emailRegex = /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i;
+		if (!emailRegex.test(email)) {
+			return res.status(400).json({
+				success: false,
+				message: 'Invalid email format',
+			});
+		}
+
+		// Create contact message document
+		const contactMessage = {
+			name,
+			email,
+			subject,
+			message,
+			createdAt: new Date(),
+			status: 'unread',
+		};
+
+		// Insert into database
+		const result = await contactCollection.insertOne(contactMessage);
+
+		if (!result.insertedId) {
+			throw new Error('Failed to save contact message');
+		}
+
+		res.status(201).json({
+			success: true,
+			message: 'Message sent successfully',
+		});
+	} catch (error) {
+		console.error('Contact Form Error:', error);
+		res.status(500).json({
+			success: false,
+			message: 'Error sending message',
+		});
+	}
+});
+app.get('/messages', async (req, res) => {
+	try {
+		const messages = await contactCollection.find({}).sort({ createdAt: -1 }).toArray();
+		res.json({
+			success: true,
+			data: messages,
+		});
+	} catch (error) {
+		console.error('Get Contact Messages Error:', error);
+		res.status(500).json({
+			success: false,
+			message: 'Error fetching contact messages',
+		});
+	}
+});
+app.patch('/:id', async (req, res) => {
+	try {
+		const { id } = req.params;
+		const { status } = req.body;
+
+		if (!['read', 'unread', 'archived'].includes(status)) {
+			return res.status(400).json({
+				success: false,
+				message: 'Invalid status',
+			});
+		}
+
+		const result = await contactCollection.updateOne({ _id: new ObjectId(id) }, { $set: { status } });
+
+		if (result.modifiedCount === 0) {
+			return res.status(404).json({
+				success: false,
+				message: 'Message not found',
+			});
+		}
+
+		res.json({
+			success: true,
+			message: 'Message status updated successfully',
+		});
+	} catch (error) {
+		console.error('Update Contact Message Error:', error);
+		res.status(500).json({
+			success: false,
+			message: 'Error updating message status',
 		});
 	}
 });

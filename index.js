@@ -26,11 +26,12 @@ const plansCollection = client.db('heraldDB').collection('plans');
 const commentsCollection = client.db('heraldDB').collection('comments');
 
 //NOTE: MIDDLEWARES
-app.use(
-	cors({
-		origin: ['http://localhost:5173', 'http://localhost:5174'],
-	})
-);
+// app.use(
+// 	cors({
+// 		origin: ['https://knowledge-herald.web.app', 'http://localhost:5173'],
+// 	})
+// );
+app.use(cors());
 app.use(express.json());
 
 //NOTE: CUSTOM MIDDLEWARES
@@ -1110,6 +1111,184 @@ app.get('/admin/stats', verifyUser, verifyAdmin, async (req, res) => {
 	}
 });
 
+app.get('/user-stats', verifyUser, async (req, res) => {
+	try {
+		const { email } = req.query;
+
+		if (!email) {
+			return res.status(400).json({
+				success: false,
+				message: 'Email is required',
+			});
+		}
+
+		// Get the date 30 days ago
+		const thirtyDaysAgo = new Date();
+		thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+		thirtyDaysAgo.setHours(0, 0, 0, 0);
+
+		// Generate an array of the last 30 days
+		const last30Days = Array.from({ length: 30 }, (_, i) => {
+			const date = new Date();
+			date.setDate(date.getDate() - i);
+			date.setHours(0, 0, 0, 0);
+			return date;
+		}).reverse();
+
+		// Get views data aggregated by day
+		const viewsData = await articlesCollection
+			.aggregate([
+				{
+					$match: {
+						authorEmail: email,
+						// createdAt: { $gte: thirtyDaysAgo },
+					},
+				},
+				{
+					$group: {
+						// _id: {
+						// 	$dateToString: {
+						// 		format: '%Y-%m-%d',
+						// 		date: '$createdAt',
+						// 	},
+						// },
+						_id: new ObjectId(),
+						views: { $sum: '$views' },
+					},
+				},
+				// {
+				// 	$sort: { _id: 1 },
+				// },
+			])
+			.toArray();
+
+		// Create a map of date to views
+		const viewsMap = new Map(viewsData.map((item) => [item._id, item.views]));
+		console.log(viewsData);
+		// Fill in missing dates with zero views
+		const filledViewsData = last30Days.map((date) => ({
+			date: date.toISOString().split('T')[0],
+			views: viewsMap.get(date.toISOString().split('T')[0]) || 0,
+		}));
+
+		// Get posts data aggregated by day
+		const postsData = await articlesCollection
+			.aggregate([
+				{
+					$match: {
+						authorEmail: email,
+						createdAt: { $gte: thirtyDaysAgo },
+					},
+				},
+				{
+					$group: {
+						_id: {
+							$dateToString: {
+								format: '%Y-%m-%d',
+								date: '$createdAt',
+							},
+						},
+						posts: { $sum: 1 },
+					},
+				},
+				{
+					$sort: { _id: 1 },
+				},
+			])
+			.toArray();
+
+		// Create a map of date to posts
+		const postsMap = new Map(postsData.map((item) => [item._id, item.posts]));
+
+		// Fill in missing dates with zero posts
+		const filledPostsData = last30Days.map((date) => ({
+			date: date.toISOString().split('T')[0],
+			posts: postsMap.get(date.toISOString().split('T')[0]) || 0,
+		}));
+
+		// Get total stats
+		const stats = await articlesCollection
+			.aggregate([
+				{
+					$match: { authorEmail: email },
+				},
+				{
+					$group: {
+						_id: null,
+						totalPosts: { $sum: 1 },
+						totalViews: { $sum: '$views' },
+						averageRating: { $avg: '$averageRating' },
+					},
+				},
+			])
+			.toArray();
+
+		// Calculate growth percentages
+		const previousMonthStats = await articlesCollection
+			.aggregate([
+				{
+					$match: {
+						authorEmail: email,
+						createdAt: {
+							$gte: new Date(new Date().setDate(new Date().getDate() - 60)),
+							$lt: thirtyDaysAgo,
+						},
+					},
+				},
+				{
+					$group: {
+						_id: null,
+						previousViews: { $sum: '$views' },
+						previousPosts: { $sum: 1 },
+					},
+				},
+			])
+			.toArray();
+
+		const currentStats = stats[0] || { totalPosts: 0, totalViews: 0, averageRating: 0 };
+		const previousStats = previousMonthStats[0] || { previousViews: 0, previousPosts: 0 };
+
+		const viewsGrowth = previousStats.previousViews
+			? ((currentStats.totalViews - previousStats.previousViews) / previousStats.previousViews) * 100
+			: 0;
+
+		const postsGrowth = previousStats.previousPosts
+			? ((currentStats.totalPosts - previousStats.previousPosts) / previousStats.previousPosts) * 100
+			: 0;
+
+		// Get articles with views
+		const articles = await articlesCollection
+			.find({ authorEmail: email })
+			.project({
+				title: 1,
+				views: 1,
+				createdAt: 1,
+				image: 1,
+			})
+			.sort({ views: -1 })
+			.limit(6)
+			.toArray();
+
+		res.json({
+			success: true,
+			stats: {
+				...currentStats,
+				viewsGrowth: Math.round(viewsGrowth),
+				postsGrowth: Math.round(postsGrowth),
+				viewsData: filledViewsData,
+				postsData: filledPostsData,
+				articles,
+			},
+		});
+	} catch (error) {
+		console.error('Dashboard Error:', error);
+		res.status(500).json({
+			success: false,
+			message: 'Error fetching dashboard data',
+		});
+	}
+});
+
 // NOTE: MONGODB
 async function run() {
 	try {
@@ -1123,7 +1302,7 @@ run().catch(console.dir);
 
 // NOTE: Root endpoint
 app.get('/', (req, res) => {
-	res.send('Hello, Restaurant is serving');
+	res.send('Hello, Heral is serving knowledge');
 });
 
 app.listen(port, () => {
